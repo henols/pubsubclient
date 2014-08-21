@@ -7,30 +7,34 @@
 #include "PubSubClient.h"
 #include <string.h>
 
+
 PubSubClient::PubSubClient() {
-   this->_client = NULL;
+   this->_cc3000 = NULL;
    this->stream = NULL;
+   this->clientExists = false;
 }
 
-PubSubClient::PubSubClient(uint8_t *ip, uint16_t port, void (*callback)(char*,uint8_t*,unsigned int), Client& client) {
-   this->_client = &client;
+PubSubClient::PubSubClient(uint8_t *ip, uint16_t port, void (*callback)(char*,uint8_t*,unsigned int), Adafruit_CC3000& cc3000) {
+   this->_cc3000 = &cc3000;
    this->callback = callback;
    this->ip = ip;
    this->port = port;
    this->domain = NULL;
    this->stream = NULL;
+   this->clientExists = false;
 }
 
-PubSubClient::PubSubClient(char* domain, uint16_t port, void (*callback)(char*,uint8_t*,unsigned int), Client& client) {
-   this->_client = &client;
+PubSubClient::PubSubClient(char* domain, uint16_t port, void (*callback)(char*,uint8_t*,unsigned int), Adafruit_CC3000& cc3000) {
+   this->_cc3000 = &cc3000;
    this->callback = callback;
    this->domain = domain;
    this->port = port;
    this->stream = NULL;
+   this->clientExists = false;
 }
 
-PubSubClient::PubSubClient(uint8_t *ip, uint16_t port, void (*callback)(char*,uint8_t*,unsigned int), Client& client, Stream& stream) {
-   this->_client = &client;
+PubSubClient::PubSubClient(uint8_t *ip, uint16_t port, void (*callback)(char*,uint8_t*,unsigned int), Adafruit_CC3000& cc3000, Stream& stream) {
+   this->_cc3000 = &cc3000;
    this->callback = callback;
    this->ip = ip;
    this->port = port;
@@ -38,8 +42,8 @@ PubSubClient::PubSubClient(uint8_t *ip, uint16_t port, void (*callback)(char*,ui
    this->stream = &stream;
 }
 
-PubSubClient::PubSubClient(char* domain, uint16_t port, void (*callback)(char*,uint8_t*,unsigned int), Client& client, Stream& stream) {
-   this->_client = &client;
+PubSubClient::PubSubClient(char* domain, uint16_t port, void (*callback)(char*,uint8_t*,unsigned int), Adafruit_CC3000& cc3000, Stream& stream) {
+   this->_cc3000 = &cc3000;
    this->callback = callback;
    this->domain = domain;
    this->port = port;
@@ -60,16 +64,31 @@ boolean PubSubClient::connect(char *id, char* willTopic, uint8_t willQos, uint8_
 }
 
 boolean PubSubClient::connect(char *id, char *user, char *pass, char* willTopic, uint8_t willQos, uint8_t willRetain, char* willMessage) {
+//  Serial.println(F("connect()"));
    if (!connected()) {
-      int result = 0;
-      
+
+      uint32_t serverIp = 0;
       if (domain != NULL) {
-        result = _client->connect(this->domain, this->port);
+        // Try looking up the website's IP address
+        while (serverIp == 0) {
+          if (! _cc3000->getHostByName(domain, &serverIp)) {
+          }
+          delay(500);
+        }
       } else {
-        result = _client->connect(this->ip, this->port);
+        serverIp = _cc3000->IP2U32(ip[0], ip[1], ip[2], ip[3]);
       }
-      
-      if (result) {
+//      Serial.print(F("ip:"));
+//      Serial.print(serverIp);
+//      Serial.print(F(" port:"));
+//      Serial.println(port);
+
+//      _client = &_cc3000->connectTCP(serverIp, this->port);
+      _client = _cc3000->connectTCP(serverIp, this->port);
+      clientExists = true;
+//      Serial.println(F("cc3000->connectTCP"));
+
+      if (connected()) {
          nextMsgId = 1;
          uint8_t d[9] = {0x00,0x06,'M','Q','I','s','d','p',MQTTPROTOCOLVERSION};
          // Leave room in the buffer for header and variable length field
@@ -115,10 +134,10 @@ boolean PubSubClient::connect(char *id, char *user, char *pass, char* willTopic,
          
          lastInActivity = lastOutActivity = millis();
          
-         while (!_client->available()) {
+         while (! _client.available()) {
             unsigned long t = millis();
             if (t-lastInActivity > MQTT_KEEPALIVE*1000UL) {
-               _client->stop();
+               _client.close();
                return false;
             }
          }
@@ -131,14 +150,15 @@ boolean PubSubClient::connect(char *id, char *user, char *pass, char* willTopic,
             return true;
          }
       }
-      _client->stop();
-   }
+      _client.close();
    return false;
+   }
+   return true;
 }
 
 uint8_t PubSubClient::readByte() {
-   while(!_client->available()) {}
-   return _client->read();
+   while(! _client.available()) {}
+   return _client.read();
 }
 
 uint16_t PubSubClient::readPacket(uint8_t* lengthLength) {
@@ -193,21 +213,22 @@ uint16_t PubSubClient::readPacket(uint8_t* lengthLength) {
 
 boolean PubSubClient::loop() {
    if (connected()) {
+//     Serial.println(F("LOOP"));
       unsigned long t = millis();
       if ((t - lastInActivity > MQTT_KEEPALIVE*1000UL) || (t - lastOutActivity > MQTT_KEEPALIVE*1000UL)) {
          if (pingOutstanding) {
-            _client->stop();
+            _client.close();
             return false;
          } else {
             buffer[0] = MQTTPINGREQ;
             buffer[1] = 0;
-            _client->write(buffer,2);
+            _client.write(buffer,2);
             lastOutActivity = t;
             lastInActivity = t;
             pingOutstanding = true;
          }
       }
-      if (_client->available()) {
+      if ( _client.available()) {
          uint8_t llen;
          uint16_t len = readPacket(&llen);
          uint16_t msgId = 0;
@@ -233,7 +254,7 @@ boolean PubSubClient::loop() {
                     buffer[1] = 2;
                     buffer[2] = (msgId >> 8);
                     buffer[3] = (msgId & 0xFF);
-                    _client->write(buffer,4);
+                    _client.write(buffer,4);
                     lastOutActivity = t;
 
                   } else {
@@ -244,7 +265,7 @@ boolean PubSubClient::loop() {
             } else if (type == MQTTPINGREQ) {
                buffer[0] = MQTTPINGRESP;
                buffer[1] = 0;
-               _client->write(buffer,2);
+               _client.write(buffer,2);
             } else if (type == MQTTPINGRESP) {
                pingOutstanding = false;
             }
@@ -265,6 +286,8 @@ boolean PubSubClient::publish(char* topic, uint8_t* payload, unsigned int plengt
 
 boolean PubSubClient::publish(char* topic, uint8_t* payload, unsigned int plength, boolean retained) {
    if (connected()) {
+//       Serial.print(F("publish topic:"));
+//       Serial.println(topic);
       // Leave room in the buffer for header and variable length field
       uint16_t length = 5;
       length = writeString(topic,buffer,length);
@@ -276,6 +299,10 @@ boolean PubSubClient::publish(char* topic, uint8_t* payload, unsigned int plengt
       if (retained) {
          header |= 1;
       }
+//      Serial.print(F("Length:"));
+//      Serial.print(length-5);
+//      Serial.print(F(" pLength:"));
+//      Serial.println(plength);
       return write(header,buffer,length-5);
    }
    return false;
@@ -315,10 +342,10 @@ boolean PubSubClient::publish_P(char* topic, uint8_t* PROGMEM payload, unsigned 
    
    pos = writeString(topic,buffer,pos);
    
-   rc += _client->write(buffer,pos);
+   rc += _client.write(buffer,pos);
    
    for (i=0;i<plength;i++) {
-      rc += _client->write((char)pgm_read_byte_near(payload + i));
+      rc += _client.write((char)pgm_read_byte_near(payload + i));
    }
    
    lastOutActivity = millis();
@@ -347,7 +374,15 @@ boolean PubSubClient::write(uint8_t header, uint8_t* buf, uint16_t length) {
    for (int i=0;i<llen;i++) {
       buf[5-llen+i] = lenBuf[i];
    }
-   rc = _client->write(buf+(4-llen),length+1+llen);
+//   Serial.print("'");
+   // Serial.write(buf+(4-llen),length+1+llen);
+//   Serial.println("'");
+   rc = _client.write(buf+(4-llen),length+1+llen);
+//   Serial.println();
+//   Serial.print(F("Written length:"));
+//   Serial.println(rc);
+//   Serial.print(F("Expected length:"));
+//   Serial.println(1+llen+length);
    
    lastOutActivity = millis();
    return (rc == 1+llen+length);
@@ -358,6 +393,7 @@ boolean PubSubClient::subscribe(char* topic) {
 }
 
 boolean PubSubClient::subscribe(char* topic, uint8_t qos) {
+//  Serial.println(F("subscribe()"));
    if (qos < 0 || qos > 1)
      return false;
 
@@ -395,8 +431,9 @@ boolean PubSubClient::unsubscribe(char* topic) {
 void PubSubClient::disconnect() {
    buffer[0] = MQTTDISCONNECT;
    buffer[1] = 0;
-   _client->write(buffer,2);
-   _client->stop();
+   _client.write(buffer,2);
+   _client.close();
+   clientExists = false;
    lastInActivity = lastOutActivity = millis();
 }
 
@@ -416,11 +453,14 @@ uint16_t PubSubClient::writeString(char* string, uint8_t* buf, uint16_t pos) {
 
 boolean PubSubClient::connected() {
    boolean rc;
-   if (_client == NULL ) {
+   if (!clientExists) {
       rc = false;
    } else {
-      rc = (int)_client->connected();
-      if (!rc) _client->stop();
+     rc = (int) _client.connected();
+      if (!rc) {
+        _client.close();
+        clientExists = false;
+      }
    }
    return rc;
 }

@@ -8,7 +8,7 @@
 #define PubSubClient_h
 
 #include <Arduino.h>
-#include "Client.h"
+#include "Adafruit_CC3000.h"
 #include "Stream.h"
 
 // MQTT_MAX_PACKET_SIZE : Maximum packet size
@@ -40,7 +40,10 @@
 
 class PubSubClient {
 private:
-   Client* _client;
+   Adafruit_CC3000* _cc3000;
+//   Adafruit_CC3000_Client* _client;
+   Adafruit_CC3000_Client _client;
+   bool clientExists;
    uint8_t buffer[MQTT_MAX_PACKET_SIZE];
    uint16_t nextMsgId;
    unsigned long lastOutActivity;
@@ -57,10 +60,10 @@ private:
    Stream* stream;
 public:
    PubSubClient();
-   PubSubClient(uint8_t *, uint16_t, void(*)(char*,uint8_t*,unsigned int),Client& client);
-   PubSubClient(uint8_t *, uint16_t, void(*)(char*,uint8_t*,unsigned int),Client& client, Stream&);
-   PubSubClient(char*, uint16_t, void(*)(char*,uint8_t*,unsigned int),Client& client);
-   PubSubClient(char*, uint16_t, void(*)(char*,uint8_t*,unsigned int),Client& client, Stream&);
+   PubSubClient(uint8_t *, uint16_t, void(*)(char*,uint8_t*,unsigned int),Adafruit_CC3000& cc3000);
+   PubSubClient(uint8_t *, uint16_t, void(*)(char*,uint8_t*,unsigned int),Adafruit_CC3000& cc3000, Stream&);
+   PubSubClient(char*, uint16_t, void(*)(char*,uint8_t*,unsigned int),Adafruit_CC3000& cc3000);
+   PubSubClient(char*, uint16_t, void(*)(char*,uint8_t*,unsigned int),Adafruit_CC3000& cc3000, Stream&);
    boolean connect(char *);
    boolean connect(char *, char *, char *);
    boolean connect(char *, char *, uint8_t, uint8_t, char *);
