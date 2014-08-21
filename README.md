@@ -1,4 +1,4 @@
-pubsubclient
+PubSubClient for Adafruit CC3000
 ============
 
 A client library for the Adafruit CC3000 break out and shield that provides support for MQTT.
